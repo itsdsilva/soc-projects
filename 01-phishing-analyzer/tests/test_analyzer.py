@@ -35,6 +35,15 @@ class Tests(unittest.TestCase):
         self.assertLess(r["risk_score"], 20)
         self.assertEqual(r["verdict"], "LOW RISK")
 
+    def test_trusted_aux_not_flagged_as_lookalike(self):
+        """linkedinmobileapp.com, licdn.com etc. are owned by their brand
+        and must not be treated as typosquats."""
+        self.assertIsNone(check_lookalike("linkedinmobileapp.com"))
+        self.assertIsNone(check_lookalike("licdn.com"))
+        self.assertIsNone(check_lookalike("googleadservices.com"))
+        # still catches actual typosquats
+        self.assertIsNotNone(check_lookalike("linkedin-secure.com"))
+
     def test_lookalike(self):
         self.assertIsNotNone(check_lookalike("paypa1-secure.com"))
         self.assertIsNotNone(check_lookalike("rnicrosoft.com"))

@@ -7,6 +7,7 @@ Analyzes a .eml file for phishing indicators:
   * SPF / DKIM / DMARC results (from Authentication-Results) + alignment checks
   * Optional live DNS lookup of the sender's SPF / DMARC records (--dns)
   * URL analysis (anchor/href mismatch, IP hosts, shorteners, punycode, lookalikes)
+  * Redirect unwrapping (?url=, ?u=, ?target=, ...) with trust propagation
   * Attachment analysis (hashes, dangerous / double extensions, macros)
   * Weighted risk score, verdict, IOC list and MITRE ATT&CK mapping
 
@@ -30,7 +31,7 @@ from email import policy
 from email.parser import BytesParser
 from email.utils import parseaddr
 from html.parser import HTMLParser
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs, unquote
 
 # --------------------------------------------------------------------------- #
 # Reference data (extend these lists as you learn - it's part of the project)
@@ -52,6 +53,24 @@ BRANDS = {
     "sbi": ["sbi.co.in", "onlinesbi.com"],
     "hdfcbank": ["hdfcbank.com"],
     "icicibank": ["icicibank.com"],
+}
+
+# --- NEW ---
+# Known-safe auxiliary / marketing / CDN domains owned by a brand.
+# These legitimately contain the brand name without being the primary domain.
+TRUSTED_AUX = {
+    "linkedinmobileapp.com": "linkedin",
+    "licdn.com": "linkedin",
+    "lnkd.in": "linkedin",
+    "googleadservices.com": "google",
+    "googlesyndication.com": "google",
+    "googleusercontent.com": "google",
+    "microsoftonline.com": "microsoft",
+    "amazonaws.com": "amazon",
+    "fb.com": "facebook",
+    "docusign.net": "docusign",
+    "githubusercontent.com": "github",
+    "githubassets.com": "github",
 }
 
 URL_SHORTENERS = {"bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly", "is.gd",
@@ -76,6 +95,9 @@ CREDENTIAL_BAIT = ["verify your account", "confirm your identity", "update your 
 
 TWO_LEVEL_TLDS = {"co.uk", "org.uk", "ac.uk", "com.au", "co.in", "net.in", "org.in",
                   "gov.in", "co.jp", "com.br", "co.za", "com.cn", "co.nz"}
+
+# --- NEW --- Query-string keys commonly used for open-redirect / click-tracking wrappers.
+REDIRECT_KEYS = ("url", "u", "target", "redirect", "redirect_uri", "r", "dest", "to", "link")
 
 
 # --------------------------------------------------------------------------- #
@@ -132,6 +154,9 @@ def check_lookalike(domain: str):
     base = base_domain(domain)
     if not base:
         return None
+    # --- NEW --- trusted auxiliary domains are not lookalikes.
+    if base in TRUSTED_AUX:
+        return None
     for brand, legit in BRANDS.items():
         if base in legit:
             return None
@@ -144,6 +169,30 @@ def check_lookalike(domain: str):
         if ratio >= 0.85 and norm != brand:
             return brand, f"'{base}' is a near-match ({ratio:.0%}) to '{brand}' (typosquat)"
     return None
+
+
+# --- NEW ---
+def unwrap_redirect(url: str):
+    """Return the real target if `url` is a redirect/click-tracker, else None."""
+    try:
+        u = urlparse(url)
+    except ValueError:
+        return None
+    qs = parse_qs(u.query or "")
+    for key in REDIRECT_KEYS:
+        if key in qs:
+            target = unquote(qs[key][0])
+            if target.startswith(("http://", "https://")):
+                return target
+    return None
+
+
+# --- NEW ---
+def from_matches_brand(brand: str, from_domain: str) -> bool:
+    """True if the From domain is one of the brand's official domains."""
+    if not from_domain or not brand:
+        return False
+    return base_domain(from_domain) in BRANDS.get(brand, [])
 
 
 class LinkExtractor(HTMLParser):
@@ -190,7 +239,9 @@ class PhishingAnalyzer:
         self.check_authentication()
         self.check_received_chain()
         body_text, links = self.extract_body()
-        self.check_urls(links, body_text)
+        # --- CHANGED --- pass auth state into URL checks for trust propagation.
+        auth_all_pass = all(v == "pass" for v in self.auth.values())
+        self.check_urls(links, body_text, auth_all_pass=auth_all_pass)
         self.check_attachments()
         self.check_content(body_text)
         if self.use_dns:
@@ -215,7 +266,6 @@ class PhishingAnalyzer:
         if from_dom:
             self.iocs["domains"].add(from_dom)
 
-        # Reply-To differs from From
         if reply_to:
             rt_dom = addr_domain(reply_to)
             self.iocs["emails"].add(parseaddr(str(reply_to))[1])
@@ -223,7 +273,6 @@ class PhishingAnalyzer:
                 self.add("HIGH", "Header", "Reply-To domain differs from From",
                          f"From: {from_dom} | Reply-To: {rt_dom} - replies go somewhere else.", 15, "T1566")
 
-        # Return-Path (envelope sender) differs from From
         if return_path:
             rp_dom = addr_domain(return_path)
             if rp_dom:
@@ -233,7 +282,6 @@ class PhishingAnalyzer:
                          f"Envelope sender {rp_dom} vs visible sender {from_dom}. "
                          "(Common for legit bulk mailers - weigh with SPF/DKIM/DMARC.)", 12, "T1566")
 
-        # Display-name spoofing
         if from_name:
             if "@" in from_name and addr_domain(from_name) != from_dom:
                 self.add("HIGH", "Header", "Display name contains a different email address",
@@ -244,12 +292,10 @@ class PhishingAnalyzer:
                              f"Display name '{from_name}' but sending domain is {from_dom}.", 20, "T1656")
                     break
 
-        # Lookalike sender domain
         hit = check_lookalike(from_dom) if from_dom else None
         if hit:
             self.add("CRITICAL", "Header", "Lookalike / typosquatted sender domain", hit[1], 25, "T1566")
 
-        # Message-ID sanity
         mid = self.meta["message_id"]
         if not mid:
             self.add("LOW", "Header", "Missing Message-ID", "Legitimate MTAs always add one.", 5)
@@ -325,7 +371,7 @@ class PhishingAnalyzer:
         received = [str(r) for r in self.msg.get_all("Received", [])]
         self.meta["hops"] = len(received)
         origin = None
-        for hop in reversed(received):                 # last header = first hop
+        for hop in reversed(received):
             for ip in re.findall(r"\[?(\d{1,3}(?:\.\d{1,3}){3})\]?", hop):
                 try:
                     if ipaddress.ip_address(ip).is_global:
@@ -369,10 +415,21 @@ class PhishingAnalyzer:
         return " ".join(text_parts), links
 
     # -------------------------------- URLs ----------------------------- #
-    def check_urls(self, links, body_text):
+    def check_urls(self, links, body_text, auth_all_pass=False):
+        from_dom = addr_domain(self.msg.get("From"))
         seen = set()
+        # --- NEW --- also check the unwrapped target of every link.
+        to_check = []
         for href, text in links:
-            if not href.lower().startswith(("http://", "https://")) or href in seen:
+            if not href.lower().startswith(("http://", "https://")):
+                continue
+            to_check.append((href, text, False))
+            inner = unwrap_redirect(href)
+            if inner:
+                to_check.append((inner, text, True))
+
+        for href, text, is_unwrapped in to_check:
+            if href in seen:
                 continue
             seen.add(href)
             self.iocs["urls"].add(href)
@@ -380,35 +437,49 @@ class PhishingAnalyzer:
             host = (u.hostname or "").lower()
             self.iocs["domains"].add(host)
             shown = defang(href)
+            prefix = "[unwrapped target] " if is_unwrapped else ""
 
-            # Anchor text says one thing, href goes elsewhere
-            m = re.search(r"((?:https?://)?(?:[\w\-]+\.)+[a-z]{2,})", text.lower())
-            if m:
-                text_host = urlparse(m.group(1) if "//" in m.group(1) else "//" + m.group(1)).hostname or ""
-                if base_domain(text_host) != base_domain(host):
-                    self.add("CRITICAL", "URL", "Link text does not match link target",
-                             f"Displays '{text_host}' but goes to {shown}", 25, "T1566.002")
+            # Anchor text says one thing, href goes elsewhere (only for outer links).
+            if not is_unwrapped:
+                m = re.search(r"((?:https?://)?(?:[\w\-]+\.)+[a-z]{2,})", text.lower())
+                if m:
+                    text_host = urlparse(m.group(1) if "//" in m.group(1) else "//" + m.group(1)).hostname or ""
+                    if base_domain(text_host) != base_domain(host):
+                        self.add("CRITICAL", "URL", "Link text does not match link target",
+                                 f"Displays '{text_host}' but goes to {shown}", 25, "T1566.002")
 
             try:
                 ipaddress.ip_address(host)
-                self.add("HIGH", "URL", "URL uses a raw IP address", shown, 20, "T1566.002")
+                self.add("HIGH", "URL", "URL uses a raw IP address", prefix + shown, 20, "T1566.002")
             except ValueError:
                 pass
             if base_domain(host) in URL_SHORTENERS:
-                self.add("MEDIUM", "URL", "URL shortener hides destination", shown, 8, "T1566.002")
+                self.add("MEDIUM", "URL", "URL shortener hides destination", prefix + shown, 8, "T1566.002")
             if "xn--" in host:
-                self.add("HIGH", "URL", "Punycode (IDN homograph) domain", shown, 15, "T1566.002")
+                self.add("HIGH", "URL", "Punycode (IDN homograph) domain", prefix + shown, 15, "T1566.002")
             if host.rpartition(".")[2] in SUSPICIOUS_TLDS:
-                self.add("MEDIUM", "URL", f"Suspicious TLD .{host.rpartition('.')[2]}", shown, 8, "T1566.002")
+                self.add("MEDIUM", "URL", f"Suspicious TLD .{host.rpartition('.')[2]}", prefix + shown, 8, "T1566.002")
             if u.username:
-                self.add("HIGH", "URL", "Credentials/@ trick in URL", shown, 15, "T1566.002")
+                self.add("HIGH", "URL", "Credentials/@ trick in URL", prefix + shown, 15, "T1566.002")
             if u.scheme == "http":
-                self.add("LOW", "URL", "Unencrypted HTTP link", shown, 3)
+                self.add("LOW", "URL", "Unencrypted HTTP link", prefix + shown, 3)
             if host.count(".") >= 4:
-                self.add("LOW", "URL", "Excessive subdomains", shown, 4)
+                self.add("LOW", "URL", "Excessive subdomains", prefix + shown, 4)
+
             hit = check_lookalike(host)
             if hit:
-                self.add("HIGH", "URL", "Link domain imitates a known brand", f"{hit[1]} ({shown})", 20, "T1566.002")
+                brand = hit[0]
+                # --- NEW --- trust propagation:
+                # If the whole message is authenticated (SPF+DKIM+DMARC pass)
+                # AND the From domain is the brand itself, downgrade the finding.
+                if auth_all_pass and from_matches_brand(brand, from_dom):
+                    self.add("LOW", "URL",
+                             "Brand-adjacent URL in authenticated brand email",
+                             f"{prefix}{hit[1]} (message is DKIM-signed by {from_dom})",
+                             3, "T1566.002")
+                else:
+                    self.add("HIGH", "URL", "Link domain imitates a known brand",
+                             f"{prefix}{hit[1]} ({shown})", 20, "T1566.002")
 
     # ----------------------------- attachments ------------------------- #
     def check_attachments(self):

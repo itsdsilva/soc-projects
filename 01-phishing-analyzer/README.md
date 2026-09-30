@@ -100,6 +100,41 @@ Weights are deliberately simple and live next to each check in `analyzer.py`, so
 - **Missing Authentication-Results** usually means you exported the mail from a client rather than the gateway, so the auth verdict is unknown, not clean.
 - Extend `BRANDS`, `SUSPICIOUS_TLDS`, and `DANGEROUS_EXT` for your organization.
 
+### Case study: LinkedIn false positive
+
+While testing against real inbox mail, a genuine LinkedIn job-alert email
+scored **20/100** on the first version of this tool. The body linked to
+`linkedinmobileapp.com`, which contains the brand string `linkedin` but is
+not in the official-domains list, so the lookalike rule fired.
+
+**Why it's actually legitimate:**
+
+- Two aligned DKIM signatures: `d=mailb.linkedin.com` and `d=linkedin.com`
+- SPF pass from `bounce.linkedin.com`
+- DMARC pass with `p=REJECT sp=REJECT`
+- The link is wrapped through `www.linkedin.com/e/v2?url=https://linkedinmobileapp.com`
+  — LinkedIn's own click-tracker on their own domain
+
+Aligned triple-pass means LinkedIn's own infrastructure signed the body,
+including the link. A brand-lookalike URL alone is not phishing.
+
+**Fix applied:**
+
+1. Added a `TRUSTED_AUX` allowlist of known brand auxiliary domains
+   (`linkedinmobileapp.com`, `licdn.com`, `lnkd.in`, `googleadservices.com`, ...).
+2. Added redirect unwrapping for `?url=`, `?u=`, `?target=`, ...
+   so the real destination is checked, not just the wrapper.
+3. Made brand-lookalike severity **auth-aware**: when SPF+DKIM+DMARC all pass
+   and the From domain is the brand itself, the finding is downgraded to LOW
+   with the note "message is DKIM-signed by `<domain>`".
+
+**Lesson:** A brand-lookalike URL alone is not phishing. Trust propagation
+from aligned authentication is a real signal, and detection rules must weigh
+context, not just pattern-match.
+
+*The email itself is not included in this repo — only the synthetic samples
+in `samples/`. Real mail is excluded to protect personal data.*
+
 ## Analyst response playbook
 
 When this tool (or a user report) flags an email:
