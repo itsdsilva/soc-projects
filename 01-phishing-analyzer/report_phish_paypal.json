@@ -155,13 +155,13 @@
   ],
   "iocs": {
     "domains": [
-      "185.220.101.45",
       "bit.ly",
       "mailer-xk3.ru",
       "paypa1-secure.com",
       "paypa1-secure.com.account-verify.top"
     ],
     "ips": [
+      "185.220.101.45",
       "45.133.1.77"
     ],
     "urls": [

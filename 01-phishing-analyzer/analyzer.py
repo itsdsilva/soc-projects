@@ -71,6 +71,7 @@ TRUSTED_AUX = {
     "docusign.net": "docusign",
     "githubusercontent.com": "github",
     "githubassets.com": "github",
+    "github.io": "github",
 }
 
 URL_SHORTENERS = {"bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly", "is.gd",
@@ -117,8 +118,16 @@ class Finding:
 # Helpers
 # --------------------------------------------------------------------------- #
 def defang(s: str) -> str:
-    """Make URLs / domains safe to paste into tickets and reports."""
-    return s.replace("http", "hxxp").replace(".", "[.]")
+    """Make URLs / domains safe to paste into tickets and reports.
+
+    Only the scheme is rewritten: a bare ``http`` inside a host or path
+    (``httpbin.org``, ``http-only.net``) must survive intact, otherwise the
+    defanged IOC is a different domain than the one observed and any blocklist
+    entry built from it will never match. Nested URLs in query strings are
+    still defanged.
+    """
+    return re.sub(r"(?i)(?<![a-z0-9+.\-])https?://",
+                  lambda m: m.group(0).replace("http", "hxxp"), s).replace(".", "[.]")
 
 
 def base_domain(host: str) -> str:
@@ -433,11 +442,25 @@ class PhishingAnalyzer:
                 continue
             seen.add(href)
             self.iocs["urls"].add(href)
-            u = urlparse(href)
-            host = (u.hostname or "").lower()
-            self.iocs["domains"].add(host)
             shown = defang(href)
             prefix = "[unwrapped target] " if is_unwrapped else ""
+
+            try:
+                u = urlparse(href)
+            except ValueError:
+                # A crafted or malformed URL (e.g. "http://[::1") must never
+                # abort the whole analysis - the attacker controls the body.
+                self.add("LOW", "URL", "Unparseable URL", prefix + shown, 3)
+                continue
+            host = (u.hostname or "").lower()
+            try:
+                is_ip = bool(ipaddress.ip_address(host))
+            except ValueError:
+                is_ip = False
+            if host:
+                # A raw-IP host is an IP indicator, not a domain. Keep the
+                # domain list free of IPs so it can drive a domain blocklist.
+                (self.iocs["ips"] if is_ip else self.iocs["domains"]).add(host)
 
             # Anchor text says one thing, href goes elsewhere (only for outer links).
             if not is_unwrapped:
@@ -448,11 +471,8 @@ class PhishingAnalyzer:
                         self.add("CRITICAL", "URL", "Link text does not match link target",
                                  f"Displays '{text_host}' but goes to {shown}", 25, "T1566.002")
 
-            try:
-                ipaddress.ip_address(host)
+            if is_ip:
                 self.add("HIGH", "URL", "URL uses a raw IP address", prefix + shown, 20, "T1566.002")
-            except ValueError:
-                pass
             if base_domain(host) in URL_SHORTENERS:
                 self.add("MEDIUM", "URL", "URL shortener hides destination", prefix + shown, 8, "T1566.002")
             if "xn--" in host:
