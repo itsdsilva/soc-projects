@@ -22,7 +22,7 @@ risk score, extracts **defanged IOCs**, and maps findings to **MITRE ATT&CK**.
 ## Quick start
 
 ```bash
-git clone <your-repo> && cd phishing-analyzer
+git clone https://github.com/itsdsilva/soc-projects.git && cd soc-projects/01-phishing-analyzer
 python analyzer.py samples/phish_paypal.eml
 python analyzer.py samples/phish_paypal.eml --json report.json
 pip install dnspython && python analyzer.py samples/phish_paypal.eml --dns   # optional
@@ -95,7 +95,8 @@ Weights are deliberately simple and live next to each check in `analyzer.py`, so
 ## False positives and tuning
 
 - **Bulk mailers (Mailchimp, SendGrid, Salesforce):** Return-Path and DKIM domains legitimately differ from From. Alone these score low (12 and 8), so they will not cross the "likely phishing" line.
-- **Brand detection** flags any non-official domain containing a brand name, including your own partners (e.g. `paypal-integration.yourcompany.com`). Add trusted domains to `BRANDS`.
+- **Brand detection** only judges the first label of the *registrable* domain. So `paypal-secure.example` is flagged as a lookalike, but `paypal-integration.yourcompany.com` is not, because the brand string sits under someone else's domain. Domains that genuinely belong to a brand but are absent from `BRANDS` or `TRUSTED_AUX` (`github.io`, for example) will be flagged - add them to `TRUSTED_AUX`.
+- **IOCs are typed.** A URL with a raw-IP host lands in `iocs.ips`, not `iocs.domains`, so the domain list can be fed straight into a domain blocklist.
 - **Shorteners and `.support`/`.xyz` TLDs** appear in legitimate marketing mail. They add small scores only.
 - **Missing Authentication-Results** usually means you exported the mail from a client rather than the gateway, so the auth verdict is unknown, not clean.
 - Extend `BRANDS`, `SUSPICIOUS_TLDS`, and `DANGEROUS_EXT` for your organization.
@@ -149,11 +150,17 @@ When this tool (or a user report) flags an email:
 ## Project structure
 
 ```
-phishing-analyzer/
-├── analyzer.py               # the tool
-├── samples/                  # 2 phishing + 1 legitimate test emails (synthetic)
-├── tests/test_analyzer.py    # unit tests
-├── report_phish_paypal.json  # sample JSON output
+01-phishing-analyzer/
+├── analyzer.py                      # the tool
+├── samples/                         # 2 phishing + 1 legitimate test emails (synthetic)
+├── tests/
+│   ├── mailbuild.py                 # synthetic .eml builder shared by the tests
+│   ├── test_analyzer.py             # unit tests against the sample emails
+│   ├── test_mutations.py            # one-change-at-a-time mutation tests
+│   ├── test_detections.py           # every detection, one synthetic mail each
+│   ├── test_features.py             # redirect unwrapping, trust, DNS, CLI
+│   └── test_regressions.py          # fixed-bug regression tests
+├── report_phish_paypal.json         # sample JSON output
 └── README.md
 ```
 
