@@ -1,0 +1,28 @@
+Return-Path: <accounts@invoice-dhl-express.click>
+Received: from smtp.invoice-dhl-express.click ([91.240.118.20])
+	by mx.example.com with ESMTP; Wed, 30 Sep 2026 06:01:10 +0000
+Authentication-Results: mx.example.com;
+       spf=pass smtp.mailfrom=accounts@invoice-dhl-express.click;
+       dkim=pass header.d=invoice-dhl-express.click;
+       dmarc=pass header.from=invoice-dhl-express.click
+From: "DHL Billing" <accounts@invoice-dhl-express.click>
+To: finance@example.com
+Subject: Invoice 9931 - final notice
+Date: Wed, 30 Sep 2026 06:00:59 +0000
+Message-ID: <a1b2c3@invoice-dhl-express.click>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="BOUNDARY"
+
+--BOUNDARY
+Content-Type: text/plain; charset="UTF-8"
+
+Final notice: immediate action required. Please see the attached invoice.
+Archive password: 1234
+
+--BOUNDARY
+Content-Type: application/octet-stream; name="Invoice_9931.pdf.exe"
+Content-Disposition: attachment; filename="Invoice_9931.pdf.exe"
+Content-Transfer-Encoding: base64
+
+SEFSTUxFU1MgVEVTVCBGSUxFIC0gTk9UIEEgUkVBTCBFWEVDVVRBQkxF
+--BOUNDARY--

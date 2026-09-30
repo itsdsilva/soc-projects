@@ -1,0 +1,16 @@
+Return-Path: <noreply@github.com>
+Received: from out-1.smtp.github.com (out-1.smtp.github.com [192.30.252.192])
+	by mx.google.com with ESMTPS id x1; Tue, 29 Sep 2026 10:00:01 -0700 (PDT)
+Authentication-Results: mx.google.com;
+       dkim=pass header.i=@github.com header.d=github.com;
+       spf=pass smtp.mailfrom=noreply@github.com;
+       dmarc=pass (p=REJECT) header.from=github.com
+From: GitHub <noreply@github.com>
+To: you@example.com
+Subject: [soc-projects] Pull request merged
+Date: Tue, 29 Sep 2026 17:00:00 +0000
+Message-ID: <repo/pull/1@github.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="UTF-8"
+
+Your pull request was merged. View it here: https://github.com/you/soc-projects/pull/1
