@@ -1,0 +1,178 @@
+{
+  "verdict": "PHISHING (high confidence)",
+  "risk_score": 100,
+  "meta": {
+    "subject": "URGENT: Your PayPal account will be suspended",
+    "from": "PayPal Support <support@paypa1-secure.com>",
+    "reply_to": "recovery.desk@gmail.com",
+    "return_path": "<bounce@mailer-xk3.ru>",
+    "to": "victim@example.com",
+    "date": "Tue, 29 Sep 2026 15:13:55 +0000",
+    "message_id": "<20260929151355.7781@mailer-xk3.ru>",
+    "x_originating_ip": "",
+    "hops": 2,
+    "origin_ip": "45.133.1.77"
+  },
+  "authentication": {
+    "spf": "fail",
+    "dkim": "none",
+    "dmarc": "fail"
+  },
+  "findings": [
+    {
+      "severity": "CRITICAL",
+      "category": "Header",
+      "title": "Lookalike / typosquatted sender domain",
+      "detail": "'paypa1-secure.com' contains brand name 'paypal' but is not an official domain",
+      "points": 25,
+      "mitre": "T1566"
+    },
+    {
+      "severity": "CRITICAL",
+      "category": "Authentication",
+      "title": "DMARC FAIL",
+      "detail": "Neither aligned SPF nor aligned DKIM passed for the From domain.",
+      "points": 25,
+      "mitre": "T1566"
+    },
+    {
+      "severity": "CRITICAL",
+      "category": "URL",
+      "title": "Link text does not match link target",
+      "detail": "Displays 'www.paypal.com' but goes to hxxp://paypa1-secure[.]com[.]account-verify[.]top/login",
+      "points": 25,
+      "mitre": "T1566.002"
+    },
+    {
+      "severity": "HIGH",
+      "category": "Header",
+      "title": "Display name impersonates 'paypal'",
+      "detail": "Display name 'PayPal Support' but sending domain is paypa1-secure.com.",
+      "points": 20,
+      "mitre": "T1656"
+    },
+    {
+      "severity": "HIGH",
+      "category": "Authentication",
+      "title": "SPF FAIL",
+      "detail": "Sending IP is not authorized by the envelope domain.",
+      "points": 20,
+      "mitre": "T1566"
+    },
+    {
+      "severity": "HIGH",
+      "category": "URL",
+      "title": "URL uses a raw IP address",
+      "detail": "hxxp://185[.]220[.]101[.]45/paypal/login[.]php",
+      "points": 20,
+      "mitre": "T1566.002"
+    },
+    {
+      "severity": "HIGH",
+      "category": "Header",
+      "title": "Reply-To domain differs from From",
+      "detail": "From: paypa1-secure.com | Reply-To: gmail.com - replies go somewhere else.",
+      "points": 15,
+      "mitre": "T1566"
+    },
+    {
+      "severity": "MEDIUM",
+      "category": "Header",
+      "title": "Return-Path domain differs from From",
+      "detail": "Envelope sender mailer-xk3.ru vs visible sender paypa1-secure.com. (Common for legit bulk mailers - weigh with SPF/DKIM/DMARC.)",
+      "points": 12,
+      "mitre": "T1566"
+    },
+    {
+      "severity": "MEDIUM",
+      "category": "URL",
+      "title": "Suspicious TLD .top",
+      "detail": "hxxp://paypa1-secure[.]com[.]account-verify[.]top/login",
+      "points": 8,
+      "mitre": "T1566.002"
+    },
+    {
+      "severity": "MEDIUM",
+      "category": "URL",
+      "title": "URL shortener hides destination",
+      "detail": "hxxps://bit[.]ly/3xYzAbC",
+      "points": 8,
+      "mitre": "T1566.002"
+    },
+    {
+      "severity": "MEDIUM",
+      "category": "Content",
+      "title": "Urgency / pressure language",
+      "detail": "within 24 hours, account will be, action required, unusual activity",
+      "points": 8,
+      "mitre": "T1566"
+    },
+    {
+      "severity": "LOW",
+      "category": "Header",
+      "title": "Message-ID domain differs from From",
+      "detail": "Message-ID domain mailer-xk3.ru vs From paypa1-secure.com.",
+      "points": 5,
+      "mitre": ""
+    },
+    {
+      "severity": "LOW",
+      "category": "Authentication",
+      "title": "No DKIM signature",
+      "detail": "Message is unsigned.",
+      "points": 5,
+      "mitre": ""
+    },
+    {
+      "severity": "LOW",
+      "category": "Content",
+      "title": "Credential-harvesting language",
+      "detail": "verify your account",
+      "points": 5,
+      "mitre": "T1566"
+    },
+    {
+      "severity": "LOW",
+      "category": "URL",
+      "title": "Unencrypted HTTP link",
+      "detail": "hxxp://paypa1-secure[.]com[.]account-verify[.]top/login",
+      "points": 3,
+      "mitre": ""
+    },
+    {
+      "severity": "LOW",
+      "category": "URL",
+      "title": "Unencrypted HTTP link",
+      "detail": "hxxp://185[.]220[.]101[.]45/paypal/login[.]php",
+      "points": 3,
+      "mitre": ""
+    }
+  ],
+  "mitre_techniques": [
+    "T1566",
+    "T1566.002",
+    "T1656"
+  ],
+  "iocs": {
+    "domains": [
+      "185.220.101.45",
+      "bit.ly",
+      "mailer-xk3.ru",
+      "paypa1-secure.com",
+      "paypa1-secure.com.account-verify.top"
+    ],
+    "ips": [
+      "45.133.1.77"
+    ],
+    "urls": [
+      "http://185.220.101.45/paypal/login.php",
+      "http://paypa1-secure.com.account-verify.top/login",
+      "https://bit.ly/3xYzAbC"
+    ],
+    "emails": [
+      "recovery.desk@gmail.com",
+      "support@paypa1-secure.com"
+    ],
+    "hashes": []
+  }
+}
